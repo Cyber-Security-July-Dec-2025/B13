@@ -1,6 +1,6 @@
 #include "lamport.h"
 
-// Crypto++
+
 #include <cryptopp/sha.h>
 #include <cryptopp/cryptlib.h>
 
@@ -21,25 +21,21 @@ bool HashChain::build(const QByteArray &h0, int n) {
 
     n_ = n;
 
-    // Build into a local vector first
+   
     QVector<QByteArray> v;
     v.reserve(n_ + 1);
 
-    // h[0] = h0
     v.push_back(h0);
 
-    // h[i] = H(h[i-1]) for i = 1..n
     for (int i = 1; i <= n_; ++i) {
         v.push_back(sha256CryptoPP(v.back()));
     }
 
-    // Move into the member
     chain_.swap(v);
     return true;
 }
 
 QByteArray HashChain::responseForChallenge(int c) const {
-    // r = H^{n-c}(h0) = chain[n - c]
     if (c <= 0 || c > n_ || chain_.size() != n_ + 1)
         return QByteArray();
 

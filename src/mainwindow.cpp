@@ -20,7 +20,6 @@
 
 #include "lamport.h"
 
-// ---------- Utility ----------
 static QByteArray hexToBytes(const QString &hex) {
     QByteArray h = hex.trimmed().toLatin1();
     return QByteArray::fromHex(h);
@@ -29,9 +28,7 @@ static QString bytesToHex(const QByteArray &b) {
     return QString::fromLatin1(b.toHex());
 }
 
-// ---------- MainWindow ----------
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    // UI
     auto *central = new QWidget(this);
     setCentralWidget(central);
 
@@ -64,7 +61,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("Lamport Authentication (Qt + Crypto++)");
     resize(900, 560);
 
-    // Signals
     connect(btnConnect_, &QPushButton::clicked, this, &MainWindow::onConnect);
     connect(btnStart_, &QPushButton::clicked, this, &MainWindow::onStart);
     connect(btnStop_, &QPushButton::clicked, this, &MainWindow::onStop);
@@ -80,11 +76,9 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::loadConfig() {
-    // Always read app.ini from the executable directory
     const QString iniPath = QCoreApplication::applicationDirPath() + "/app.ini";
     QSettings s(iniPath, QSettings::IniFormat);
 
-    // Diagnostics
     s.sync();
     log("Using config: " + QFileInfo(s.fileName()).absoluteFilePath());
     if (s.status() != QSettings::NoError) {
@@ -93,7 +87,6 @@ void MainWindow::loadConfig() {
     const QStringList keys = s.allKeys();
     log("Config keys: " + (keys.isEmpty() ? QString("<none>") : keys.join(", ")));
 
-    // Case-tolerant readers
     auto readStr = [&](const QString &k, const QString &def = QString()) {
         auto tryKey = [&](QString key) {
             if (s.contains(key)) return s.value(key).toString().trimmed();
@@ -113,7 +106,6 @@ void MainWindow::loadConfig() {
         return QByteArray::fromHex(readStr(k).toLatin1());
     };
 
-    // Load values
     role_      = readStr("general/role", "Alice");
     n_         = readInt("general/n", 100);
     sleepMs_   = readInt("general/sleep_ms", 1000);
@@ -126,7 +118,6 @@ void MainWindow::loadConfig() {
     h0_        = readHex("values/h0");
     hn_        = readHex("values/hn");
 
-    // Optional: single-PC convenience override based on folder name
     const QString exeDir = QCoreApplication::applicationDirPath();
     if (exeDir.endsWith("/Bob", Qt::CaseInsensitive) || exeDir.endsWith("\\Bob", Qt::CaseInsensitive)) {
         if (!role_.compare("Alice", Qt::CaseInsensitive))
@@ -138,7 +129,6 @@ void MainWindow::loadConfig() {
         role_ = "Alice";
     }
 
-    // Echo parsed config
     log(QString("Parsed role='%1', n=%2, sleep_ms=%3").arg(role_).arg(n_).arg(sleepMs_));
     log(QString("listen=%1:%2, peer=%3:%4").arg(listenIp_).arg(listenPort_).arg(peerIp_).arg(peerPort_));
     if (!h0_.isEmpty()) log("h0 present (" + QString::number(h0_.size()) + " bytes)");
@@ -146,7 +136,6 @@ void MainWindow::loadConfig() {
 
     lblRole_->setText(role_);
 
-    // Initialize per-role state
     if (role_.compare("Alice", Qt::CaseInsensitive) == 0) {
         theta_ = hn_;
         if (theta_.isEmpty()) {
@@ -158,7 +147,6 @@ void MainWindow::loadConfig() {
         } else if (!chain_.build(h0_, n_)) {
             log("ERROR: Bob failed to build hash chain");
         } else {
-            // ➜ NEW: print Bob’s computed hn so you can paste it into Alice’s app.ini
             const QByteArray hn_calc = chain_.chain().isEmpty() ? QByteArray() : chain_.chain().back();
             if (!hn_calc.isEmpty()) {
                 log("Bob computed hn=" + QString::fromLatin1(hn_calc.toHex()));
@@ -183,7 +171,6 @@ void MainWindow::log(const QString &line) {
     logView_->append(QString("[%1] %2").arg(ts, line));
 }
 
-// ---------------- Network control ----------------
 
 void MainWindow::onConnect() {
     if (role_.compare("Alice", Qt::CaseInsensitive) == 0) {
@@ -244,12 +231,11 @@ void MainWindow::onDisconnect() {
     if (server_) { server_->close(); server_->deleteLater(); server_ = nullptr; }
 }
 
-// ---------------- Protocol I/O ----------------
 
 void MainWindow::sendJson(const QJsonObject &obj) {
     if (!sock_) return;
     QByteArray line = QJsonDocument(obj).toJson(QJsonDocument::Compact);
-    line.append('\n');                          // newline-delimited JSON framing
+    line.append('\n');                        
     sock_->write(line);
     sock_->flush();
 }
@@ -257,7 +243,6 @@ void MainWindow::sendJson(const QJsonObject &obj) {
 void MainWindow::onSocketReadyRead() {
     if (!sock_) return;
     inBuffer_.append(sock_->readAll());
-    // consume complete lines
     while (true) {
         int idx = inBuffer_.indexOf('\n');
         if (idx < 0) break;
@@ -294,7 +279,6 @@ void MainWindow::handleJson(const QJsonObject &obj) {
     }
 }
 
-// ---------------- Buttons ----------------
 
 void MainWindow::onStart() {
     if (!sock_) { log("Not connected."); return; }
@@ -316,7 +300,6 @@ void MainWindow::onStop() {
     log("Stopped.");
 }
 
-// -------------- Ticker (Alice drives rounds) --------------
 
 void MainWindow::onTick() {
     if (!running_) return;
@@ -341,7 +324,6 @@ void MainWindow::sendChallenge() {
     waitingResponse_ = true;
 }
 
-// ---------------- Bob handles challenge -------------------
 
 void MainWindow::handleChallenge(int c) {
     if (role_.compare("Bob", Qt::CaseInsensitive) != 0) {
@@ -352,7 +334,6 @@ void MainWindow::handleChallenge(int c) {
         log("ERROR: invalid c");
         return;
     }
-    // Compute r = H^{n-c}(h0). We precomputed chain.
     QByteArray r = chain_.responseForChallenge(c);
     QJsonObject msg;
     msg["type"] = "response";
@@ -362,10 +343,8 @@ void MainWindow::handleChallenge(int c) {
             .arg(c).arg(bytesToHex(r).left(16)));
 }
 
-// --------------- Alice verifies response ------------------
 
 bool MainWindow::verifyAndUpdateTheta(const QByteArray &r) {
-    // Accept iff Hash(r) == theta; then set theta = r
     QByteArray h = sha256CryptoPP(r);
     if (h == theta_) {
         theta_ = r;
@@ -396,7 +375,6 @@ void MainWindow::handleResponse(const QByteArray &r) {
     c_ += 1; // next round
 }
 
-// ------------------ Bob receives ack ----------------------
 
 void MainWindow::handleAck(bool ok) {
     if (role_.compare("Bob", Qt::CaseInsensitive) != 0) {
@@ -408,5 +386,4 @@ void MainWindow::handleAck(bool ok) {
     }
 }
 
-// ----------------- Connect/Disconnect ---------------------
 

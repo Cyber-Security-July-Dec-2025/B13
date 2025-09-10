@@ -28,7 +28,7 @@ private slots:
     void onSocketDisconnected();
     void onSocketReadyRead();
 
-    void onTick();  // 1-second pacing for challenges (Alice only)
+    void onTick(); 
 
 private:
     void loadConfig();
@@ -43,7 +43,6 @@ private:
     void handleResponse(const QByteArray &r); // Alice (param is raw bytes; we hex-decode before calling)
     void handleAck(bool ok);                  // Bob
 
-    // Verification (Alice): θ starts at h_n
     bool verifyAndUpdateTheta(const QByteArray &r);
 
 private:
@@ -61,8 +60,8 @@ private:
     QTcpSocket *sock_ = nullptr;
     QByteArray inBuffer_;
 
-    // Config
-    QString role_;       // "Alice" or "Bob"
+    
+    QString role_;       
     int n_ = 100;
     int sleepMs_ = 1000;
     QString listenIp_;
@@ -72,7 +71,6 @@ private:
     QByteArray h0_;      // Bob
     QByteArray hn_;      // Alice
 
-    // Lamport state
     HashChain chain_;    // Bob
     QByteArray theta_;   // Alice: θ, starts at h_n
     int c_ = 1;          // Alice's counter
