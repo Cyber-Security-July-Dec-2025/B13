@@ -159,13 +159,17 @@ void MainWindow::loadConfig() {
 }
 
 void MainWindow::setUiState(bool connected) {
+    const bool isAlice = (role_.compare("Alice", Qt::CaseInsensitive) == 0);
+    const bool isBob   = (role_.compare("Bob",   Qt::CaseInsensitive) == 0);
+
     btnConnect_->setEnabled(!connected);
     btnDisconnect_->setEnabled(connected);
-    btnStart_->setEnabled(connected && role_.compare("Alice", Qt::CaseInsensitive) == 0);
+
+    btnStart_->setEnabled(connected && (isAlice || isBob));
     btnStop_->setEnabled(connected);
+
     lblStatus_->setText(connected ? "Connected" : "Disconnected");
 }
-
 void MainWindow::log(const QString &line) {
     auto ts = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
     logView_->append(QString("[%1] %2").arg(ts, line));
@@ -262,18 +266,41 @@ void MainWindow::onSocketReadyRead() {
 
 void MainWindow::handleJson(const QJsonObject &obj) {
     const QString type = obj.value("type").toString();
+
     if (type == "challenge") {
-        int c = obj.value("c").toInt();
+        
+        const int c = obj.value("c").toInt();
         log(QString("RECV challenge c=%1").arg(c));
         handleChallenge(c);
+
     } else if (type == "response") {
-        QString rHex = obj.value("r").toString();
+      
+        const QString rHex = obj.value("r").toString();
+        if (rHex.isEmpty()) {
+            log("ERROR: response missing 'r' field");
+            return;
+        }
         log(QString("RECV response r=%1...").arg(rHex.left(16)));
         handleResponse(QByteArray::fromHex(rHex.toLatin1()));
+
     } else if (type == "ack") {
-        bool ok = obj.value("ok").toBool();
-        log(QString("RECV ack ok=%1").arg(ok ? "1" : "0"));
+       
+        const bool ok = obj.value("ok").toBool();
+        const QString reason = obj.value("reason").toString();
+        if (!reason.isEmpty())
+            log(QString("RECV ack ok=%1 reason=%2").arg(ok ? "1" : "0", reason));
+        else
+            log(QString("RECV ack ok=%1").arg(ok ? "1" : "0"));
         handleAck(ok);
+
+    } else if (type == "stop") {
+        log("RECV stop from peer; stopping.");
+        onStop();   
+
+    } else if (type == "status") {
+        const bool ready = obj.value("ready").toBool();
+        log(QString("RECV status ready=%1").arg(ready ? "1" : "0"));
+
     } else {
         log("ERROR: unknown message type: " + type);
     }
@@ -282,24 +309,52 @@ void MainWindow::handleJson(const QJsonObject &obj) {
 
 void MainWindow::onStart() {
     if (!sock_) { log("Not connected."); return; }
-    if (role_.compare("Alice", Qt::CaseInsensitive) != 0) {
-        log("Start is only for Alice.");
-        return;
+
+    const bool isAlice = (role_.compare("Alice", Qt::CaseInsensitive) == 0);
+    const bool isBob   = (role_.compare("Bob",   Qt::CaseInsensitive) == 0);
+
+    if (isAlice) {
+        if (hn_.isEmpty()) {
+            log("ERROR: Cannot start; Alice has no hn.");
+            return;
+        }
+        theta_ = hn_;        
+        c_ = 1;               
+        waitingResponse_ = false;
+        running_ = true;
+        tick_.start(sleepMs_);
+        log(QString("Alice started. Will run up to %1 rounds (n-1).").arg(n_ - 1));
+    } else if (isBob) {
+        acceptChallenges_ = true;
+        log("Bob: accepting challenges.");
+    } else {
+        log("Unknown role; cannot start.");
     }
-    c_ = 1;
-    waitingResponse_ = false;
-    running_ = true;
-    tick_.start(sleepMs_);
-    log(QString("Alice started. Will run up to %1 rounds (n-1).").arg(n_-1));
 }
 
 void MainWindow::onStop() {
+    const bool isAlice = (role_.compare("Alice", Qt::CaseInsensitive) == 0);
+    const bool isBob   = (role_.compare("Bob",   Qt::CaseInsensitive) == 0);
+
     running_ = false;
     waitingResponse_ = false;
     tick_.stop();
-    log("Stopped.");
-}
 
+    if (isBob) {
+        acceptChallenges_ = false;
+        log("Bob: stopped responding to challenges.");
+
+        if (sock_) {
+            QJsonObject msg; msg["type"] = "stop";
+            sendJson(msg);
+            log("SEND stop");
+        }
+    } else if (isAlice) {
+        log("Stopped.");
+    } else {
+        log("Stopped (unknown role).");
+    }
+}
 
 void MainWindow::onTick() {
     if (!running_) return;
@@ -324,16 +379,22 @@ void MainWindow::sendChallenge() {
     waitingResponse_ = true;
 }
 
-
 void MainWindow::handleChallenge(int c) {
     if (role_.compare("Bob", Qt::CaseInsensitive) != 0) {
         log("Ignoring challenge (not Bob).");
         return;
     }
+
+    if (!acceptChallenges_) {
+        log(QString("Bob is stopped; ignoring challenge c=%1").arg(c));
+        return;
+    }
+
     if (c <= 0 || c > n_) {
         log("ERROR: invalid c");
         return;
     }
+
     QByteArray r = chain_.responseForChallenge(c);
     QJsonObject msg;
     msg["type"] = "response";
@@ -352,13 +413,19 @@ bool MainWindow::verifyAndUpdateTheta(const QByteArray &r) {
     }
     return false;
 }
-
 void MainWindow::handleResponse(const QByteArray &r) {
     if (role_.compare("Alice", Qt::CaseInsensitive) != 0) {
         log("Ignoring response (not Alice).");
         return;
     }
+
+    if (!running_) {
+        log("Ignoring response: session is stopped.");
+        return;
+    }
+
     bool ok = verifyAndUpdateTheta(r);
+
     // send ack
     QJsonObject msg;
     msg["type"] = "ack";
@@ -371,6 +438,7 @@ void MainWindow::handleResponse(const QByteArray &r) {
         onStop();
         return;
     }
+
     waitingResponse_ = false;
     c_ += 1; // next round
 }

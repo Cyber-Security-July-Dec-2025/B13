@@ -76,6 +76,7 @@ private:
     int c_ = 1;          // Alice's counter
     bool waitingResponse_ = false;
     bool running_ = false;
+     bool acceptChallenges_ = true;  // Bob: whether to answer incoming challenges
 
     QTimer tick_;        // pacing
 };
