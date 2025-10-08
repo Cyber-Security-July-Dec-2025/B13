@@ -170,15 +170,13 @@ Now we download our project's code and tell it where to find the tools we just i
 
 #### Step 4: Build the Project (Create the .exe file)
 
-This is the final step where we turn all the code into a runnable program.
+Instead of manually opening Visual Studio and building through the GUI, we will use **CMake presets** for a reproducible, automated build process. From the project root folder, run the following commands in PowerShell:
 
-1.  **Open Visual Studio 2022.**
-2.  On the welcome screen, choose **"Open a local folder"**.
-3.  Navigate to and select the `lamport-auth-qt` project folder you downloaded.
-4.  Visual Studio will start configuring the project. Wait for a "CMake generation finished" message to appear in the **Output** window at the bottom.
-5.  Near the top of the window, you'll see a dropdown menu. Select **`msvc-release`** from this menu.
-6.  Go to the main menu at the top of the screen and click **`Build > Build All`**.
-7.  Wait for the build to complete. You will see a "Build succeeded" message in the Output window.
+```powershell
+# from project root
+& "C:\Qt\Tools\CMake_64\bin\cmake.exe" --preset msvc-release
+& "C:\Qt\Tools\CMake_64\bin\cmake.exe" --build build\msvc-release --config Release
+```
 
 ---
 
@@ -252,6 +250,46 @@ Each app instance needs its own instruction manual.
     * Go into the `Bob` folder and run `LamportAuthQt.exe`. Click the **Connect** button. Both windows should now show "Connected".
     * In **Alice's window**, click the **Start** button.
     * You will now see the challenge-response messages appearing in both windows, proving the authentication is working!
+
+
+#### Optional: Running on Two Different Machines
+
+If you want Alice and Bob to run on different PCs on the same LAN/Wi-Fi, update your configs as follows:
+
+**`Alice/app.ini`**
+```
+listen_ip=<Alice's_IP_address>
+listen_port=<Alice's_Port_number>
+peer_ip=<Bob's_IP_address>
+peer_port=<Bob's_Port_number>
+```
+
+**`Bob/app.ini`**
+```
+listen_ip=<Bob's_IP_address>
+listen_port=<Bob's_Port_number>
+peer_ip=<Alice's_IP_address>
+peer_port=<Alice's_Port_number>
+```
+
+Then on Alice’s PC, open the firewall for incoming connections:
+
+**`PowerShell`**
+```
+netsh advfirewall firewall add rule name="LamportAuthQt" dir=in action=allow protocol=TCP localport=5001
+```
+
+To verify Bob can reach Alice, run this on Bob’s machine:
+
+**`PowerShell`**
+
+```
+Test-NetConnection <Alice’s IPv4> -Port 5001
+```
+
+If TcpTestSucceeded : True → the connection is established successfully.
+
+Note: This configuration allows the TCP server (Alice) to bind to all interfaces (0.0.0.0) and accept connections from any peer on the local network. By explicitly opening port 5001 in Windows Firewall, external clients (Bob) can establish a connection without being blocked. The Test-NetConnection command serves as a diagnostic tool, confirming that the port is open and reachable before starting the Lamport authentication protocol.
 
 ## 8\. Example Log
 
